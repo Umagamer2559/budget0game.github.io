@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Survival Quiz</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; user-select: none; }
+    body, html { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; color: #fff; }
+    #gameCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+    .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 15px; }
+    .hidden { display: none !important; }
+    .card { background: rgba(22, 33, 62, 0.95); border: 2px solid #0f3460; border-radius: 16px; padding: 18px; text-align: center; max-width: 420px; width: 100%; box-shadow: 0 8px 25px rgba(0,0,0,0.6); }
+    .card h1 { font-size: 1.4rem; color: #e94560; margin-bottom: 6px; }
+    .card p { font-size: 0.85rem; color: #ccc; margin-bottom: 12px; }
+    .category-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 52vh; overflow-y: auto; padding: 2px; }
+    .cat-btn { background: #16213e; color: #fff; border: 1px solid #0f3460; padding: 10px 6px; border-radius: 8px; font-size: 0.8rem; font-weight: bold; text-align: left; cursor: pointer; }
+    .cat-btn:active { background: #e94560; }
+    .hud-header { width: 100%; max-width: 450px; display: flex; justify-content: space-between; background: rgba(22, 33, 62, 0.9); padding: 10px 16px; border-radius: 12px; font-weight: bold; font-size: 0.9rem; border: 1px solid rgba(255,255,255,0.1); margin-bottom: auto; }
+    .quiz-card { background: rgba(22, 33, 62, 0.95); border-radius: 16px; padding: 16px; width: 100%; max-width: 450px; margin-top: auto; margin-bottom: 15px; border: 1px solid rgba(255,255,255,0.1); }
+    .quiz-card h2 { font-size: 1rem; margin-bottom: 12px; text-align: center; min-height: 40px; display: flex; align-items: center; justify-content: center; }
+    .options-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .opt-btn { background: #16213e; color: #fff; border: 1px solid #0f3460; padding: 10px 12px; border-radius: 8px; font-size: 0.85rem; text-align: left; cursor: pointer; }
+    .opt-btn:active { background: #0f3460; }
+    .btn { background: linear-gradient(135deg, #e94560, #0f3460); color: #fff; border: none; padding: 12px; font-size: 1rem; font-weight: bold; border-radius: 10px; cursor: pointer; width: 100%; }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="start-screen" class="overlay">
+    <div class="card">
+      <h1>🎮 3D SURVIVAL QUIZ</h1>
+      <p>เลือกหมวดหมู่คำถามที่คุณจะเล่น (มี 10 แนว)</p>
+<!-- ปุ่ม Google Login -->
+<div style="margin: 15px 0; text-align: center;">
+  <button onclick="loginWithGoogle()" style="
+      background-color: #ffffff;
+      color: #757575;
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  ">
+    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="18" height="18" alt="Google logo">
+    เข้าสู่ระบบด้วย Google
+  </button>
+</div>
+      <div class="category-grid" id="category-container"></div>
+    </div>
+  </div>
+
+  <div id="quiz-screen" class="overlay hidden">
+    <div class="hud-header">
+      <div id="score-text">🏆 คะแนน: 0</div>
+      <div id="progress-text">ข้อที่: 1/5</div>
+    </div>
+    <div class="quiz-card">
+      <h2 id="question-text">กำลังโหลด...</h2>
+      <div id="options-container" class="options-grid"></div>
+    </div>
+  </div>
+
+  <div id="gameover-screen" class="overlay hidden">
+    <div class="card">
+      <h1>🎉 จบเกม! 🎉</h1>
+      <p id="final-score-text" style="margin-bottom: 15px;">คุณทำได้ 0 คะแนน</p>
+      <p id="final-score-text2" style="margin-bottom: 15px;">ไม่ได้เต็มไม่เป็นไร ถ้าได้เต็ม ยินดีด้วย!</p>
+      <button id="btn-restart" class="btn">🔄 เล่นเกมใหม่</button>
+    </div>
+  </div>
+
+
+  <script>
+    let audioCtx = null;
+    function playSound(type) {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+        if (type === 'click') {
+          osc.type = 'sine'; osc.frequency.setValueAtTime(400, now); osc.frequency.exponentialRampToValueAtTime(800, now + 0.05);
+          gain.gain.setValueAtTime(0.3, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.05);
+          osc.start(now); osc.stop(now + 0.05);
+        } else if (type === 'correct') {
+          osc.type = 'triangle'; osc.frequency.setValueAtTime(523, now); osc.frequency.setValueAtTime(659, now + 0.1); osc.frequency.setValueAtTime(783, now + 0.2);
+          gain.gain.setValueAtTime(0.4, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.4);
+          osc.start(now); osc.stop(now + 0.4);
+        } else if (type === 'wrong') {
+          osc.type = 'sawtooth'; osc.frequency.setValueAtTime(180, now); osc.frequency.setValueAtTime(110, now + 0.15);
+          gain.gain.setValueAtTime(0.4, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.35);
+          osc.start(now); osc.stop(now + 0.35);
+        }
+      } catch(e) {}
+    }
+
+    const categoriesData = [
+      { name: "💻 1. เทคโนโลยี & แฮก", questions: [
+        { q: "ภาษา HTML ทำหน้าที่หลักคืออะไร?", options: ["โครงสร้างเว็บ", "แต่งสีสไตล์", "คำนวณโค้ด", "ฐานข้อมูล"], answer: 0 },
+        { q: "Canvas ใช้เรนเดอร์กราฟิกประเภทใด?", options: ["เสียง", "กราฟิก 2D/3D", "เอกสาร Word", "วิดีโอ"], answer: 1 },
+        { q: "สมองกลหลักของคอมพิวเตอร์คือ?", options: ["RAM", "GPU", "CPU", "HDD"], answer: 2 },
+        { q: "ข้อใดคือระบบปฏิบัติการมือถือ?", options: ["Windows", "Linux", "Android", "BIOS"], answer: 2 },
+        { q: "ไฟล์แพ็กเกจติดตั้งแอป Android คือ?", options: [".exe", ".apk", ".zip", ".bat"], answer: 1 },
+        { q: "ไฟล์แพ็กเกจติดตั้งแอป Ios คือ?", options: [".exe", ".apk", ".zip", ".ipa"], answer: 3 }
+      ]},
+      { name: "⛏️ 2. มายคราฟ & เกม", questions: [
+        { q: "เกม Minecraft สร้างด้วยภาษาอะไรตอนแรก?", options: ["Python", "Java", "C++", "HTML"], answer: 1 },
+        { q: "ไอเทมใดใช้ขุดแร่เก่งที่สุดในเกม?", options: ["ไม้", "หิน", "เหล็ก", "เพชร"], answer: 3 },
+        { q: "มอนสเตอร์ระเบิดตัวเขียวๆ ชื่ออะไร?", options: ["Zombie", "Skeleton", "Creeper", "Enderman"], answer: 2 },
+        { q: "มิติสุดท้ายของเกมคือที่ไหน?", options: ["Nether", "The End", "Overworld", "Sky"], answer: 1 },
+        { q: "บล็อกใดขุดแล้วได้แสงสว่าง?", options: ["Obsidian", "Glowstone", "Bedrock", "Clay"], answer: 1 },
+        { q: "แร่ใดเป็นแร่ที่แรร์ที่สุด?", options: ["เหล็ก", "เพชร", "หิน", "เนเธอไรต์"], answer: 3 }
+      ]},
+      { name: "🚀 3. อวกาศ & จักรวาล", questions: [
+        { q: "ดาวเคราะห์ดวงใดอยู่ใกล้ดวงอาทิตย์ที่สุด?", options: ["พุธ", "ศุกร์", "โลก", "อังคาร"], answer: 0 },
+        { q: "กาแล็กซีที่เราอาศัยอยู่ชื่อว่าอะไร?", options: ["Andromeda", "Milky Way", "Sombrero", "Triangulum"], answer: 1 },
+        { q: "ดาวเคราะห์สีแดงคือดาวอะไร?", options: ["พฤหัสบดี", "เสาร์", "อังคาร", "เนปจูน"], answer: 2 },
+        { q: "หลุมดำ เกิดจากอะไร?", options: ["ดาวฤกษ์มวลสูงยุบตัว", "อุกกาบาตชนกัน", "ดาวเคราะห์ระเบิด", "สนามแม่เหล็กโลก"], answer: 0 },
+        { q: "แสงใช้เวลาเดินทางจากดวงอาทิตย์มาโลกกี่นาที?", options: ["8 วินาที", "8 นาที", "8 ชั่วโมง", "1 วัน"], answer: 1 },
+        { q: "ดาวเคราะห์ที่ใหญ่ที่สุดในระบบสุริยะคือ?", options: ["พฤหัส", "เสาร์", "ยูเรนัส", "เนปจูน"], answer: 0 }
+     ]},
+      { name: "🧠 4. ความรู้รอบตัว", questions: [
+        { q: "ประเทศใดมีพื้นที่มากที่สุดในโลก?", options: ["จีน", "แคนาดา", "สหรัฐอเมริกา", "รัสเซีย"], answer: 3 },
+        { q: "มหาสมุทรใดใหญ่ที่สุดในโลก?", options: ["แปซิฟิก", "แอตแลนติก", "อินเดีย", "อาร์กติก"], answer: 0 },
+        { q: "ธาตุเคมีที่มีสัญลักษณ์ 'O' คืออะไร?", options: ["ทองคำ", "ออกซิเจน", "เงิน", "ไฮโดรเจน"], answer: 1 },
+        { q: "อวัยวะใดใหญ่ที่สุดในร่างกายมนุษย์?", options: ["หัวใจ", "ตับ", "ผิวหนัง", "สมอง"], answer: 2 },
+        { q: "ภูเขาที่สูงที่สุดในโลกคือ?", options: ["K2", "เอเวอเรสต์", "ฟูจิ", "คิลิมันจาโร"], answer: 1 },
+        { q: "เรือไททานิคจมที่มหาสมุทรไหน?", options: ["แอตแลนติก", "แปซิฟิก", "อินเดีย", "อาร์กติก"], answer: 0 }   
+      ]},
+      { name: "🎬 5. ภาพยนตร์ & การ์ตูน", questions: [
+        { q: "ตัวละครหลักในอนิเมะ One Piece คือใคร?", options: ["โซโล", "ลูฟี่", "ซันจิ", "นามิ"], answer: 1 },
+        { q: "ค้อนของ Thor ใน Marvel ชื่ออะไร?", options: ["Mjolnir", "Excalibur", "Stormbreaker", "Trident"], answer: 0 },
+        { q: "ค่ายหนังอนิเมชั่น Ghibli อยู่ที่ประเทศใด?", options: ["สหรัฐอเมริกา", "เกาหลีใต้", "ญี่ปุ่น", "จีน"], answer: 2 },
+        { q: "ใครคือผู้สร้างจักรวาล Marvel?", options: ["Stan Lee", "DC Comics", "Steven Spielberg", "Nolan"], answer: 0 },
+        { q: "ดาบพิฆาตอสูร มีชื่ออังกฤษว่าอะไร?", options: ["Naruto", "Bleach", "Demon Slayer", "Jujutsu Kaisen"], answer: 2 },
+        { q: "Robocar Poli มีทีมกู้ภัยกี่ฝัง?", options: ["1", "2", "4", "6"], answer: 1 }
+      ]},
+      { name: "📜 6. ประวัติศาสตร์โลก", questions: [
+        { q: "พีระมิดแห่งกิซ่าตั้งอยู่ในประเทศใด?", options: ["กรีก", "อียิปต์", "โรม", "อิรัก"], answer: 1 },
+        { q: "สงครามโลกครั้งที่ 2 สิ้นสุดลงในปี ค.ศ. ใด?", options: ["1940", "1945", "1950", "1939"], answer: 1 },
+        { q: "จักรวรรดิโรมันโบราณมีศูนย์กลางอยู่ที่ไหน?", options: ["กรีซ", "อิตาลี", "ฝรั่งเศส", "สเปน"], answer: 1 },
+        { q: "ใครเป็นผู้ประดิษฐ์หลอดไฟคนแรก?", options: ["Einstein", "Tesla", "Thomas Edison", "Newton"], answer: 2 },
+        { q: "กำแพงเมืองจีนถูกสร้างขึ้นเพื่อป้องกันใคร?", options: ["มองโกล", "โรมัน", "เปอร์เซีย", "กรีก"], answer: 0 },
+        { q: "ประเทศไทยมีกี่สมัย?", options: ["2", "4", "6", "8"], answer: 1 }
+      ]},
+      { name: "⚽ 7. กีฬา & ฟุตบอล", questions: [
+        { q: "การแข่งขันฟุตบอลโลก จัดขึ้นทุกๆ กี่ปี?", options: ["2 ปี", "3 ปี", "4 ปี", "5 ปี"], answer: 2 },
+        { q: "ทีมใดคว้าแชมป์ฟุตบอลโลก 2022?", options: ["ฝรั่งเศส", "อาร์เจนตินา", "บราซิล", "โครเอเชีย"], answer: 1 },
+        { q: "นักบาสเกตบอลฉายา 'Black Mamba' คือใคร?", options: ["LeBron", "Jordan", "Kobe Bryant", "Curry"], answer: 2 },
+        { q: "วิ่ง 100 เมตร จัดอยู่ในกีฬาประเภทใด?", options: ["กรีฑา", "ยิมนาสติก", "ว่ายน้ำ", "จักรยาน"], answer: 0 },
+        { q: "สโมสรฟุตบอล 'Manchester United' อยู่ในประเทศอะไร?", options: ["อังกฤษ", "อิตาลี", "สเปน", "เยอรมนี"], answer: 0 },
+        { q: "สโมสรฟุตบอล 'Buriram United' อยู่ในประเทศอะไร?", options: ["ซาอุดีอาระเบีย", "เยอรมนี", "โปรตุเกส", "ไทย"], answer: 3 }
+      ]},
+      { name: "🧪 8. วิทยาศาสตร์", questions: [
+        { q: "ความเร็วของแสงมีค่าประมาณเท่าใด?", options: ["300,000 กม./วิ", "3,000 กม./วิ", "30,000,000 กม./วิ", "300 กม./วิ"], answer: 0 },
+        { q: "ก๊าซใดที่พืชใช้สังเคราะห์ด้วยแสง?", options: ["ออกซิเจน", "คาร์บอนไดออกไซด์", "ไนโตรเจน", "ฮีเลียม"], answer: 1 },
+        { q: "อุณหภูมิที่น้ำเดือดคือเท่าไหร่ (เซลเซียส)?", options: ["0 °C", "50 °C", "100 °C", "212 °C"], answer: 2 },
+        { q: "อนุภาคใดมีประจุไฟฟ้าเป็นลบ?", options: ["โปรตอน", "นิวตรอน", "อิเล็กตรอน", "นิวเคลียส"], answer: 2 },
+        { q: "แรงโน้มถ่วงถูกค้นพบโดยใคร?", options: ["Galileo", "Isaac Newton", "Hawking", "Tesla"], answer: 1 },
+        { q: "สัตว์ในข้อใดมีกระดูกสันหลัง?", options: ["แมว", "ดาวทะเล", "ฟองน้ำ", "กุ้ง"], answer: 0 }
+      ]},
+      { name: "🗺️ 9. ภูมิศาสตร์โลก", questions: [
+        { q: "แม่น้ำที่ยาวที่สุดในโลกคือ?", options: ["แอมะซอน", "แม่น้ำไนล์", "มิสซิสซิปปี", "แยงซี"], answer: 1 },
+        { q: "ทวีปใดมีประชากรมากที่สุดในโลก?", options: ["แอฟริกา", "ยุโรป", "เอเชีย", "อเมริกาเหนือ"], answer: 2 },
+        { q: "ทะเลสาบที่ลึกที่สุดในโลกคือ?", options: ["สุพีเรีย", "ไบคาล", "วิกตอเรีย", "เดดซี"], answer: 1 },
+        { q: "ออสเตรเลียถือเป็นทั้งประเทศและอะไร?", options: ["ทวีป", "เกาะใหญ่สุด", "รัฐอิสระ", "คาบสมุทร"], answer: 0 },
+        { q: "เมืองหลวงของประเทศญี่ปุ่นคือ?", options: ["โอซาก้า", "เกียวโต", "โตเกียว", "ฮิโรชิม่า"], answer: 2 },
+        { q: "ประเทศไทยใหญ่เป็นอันดับที่เท่าไหร่ของโลก?", options: ["20", "50", "40", "60"], answer: 1 }
+      ]},
+      { name: "🤪 10. คำถามกวนๆ", questions: [
+        { q: "ปลาอะไรเอ่ยว่ายน้ำไม่ได้?", options: ["ปลานิล", "ปลาทอด", "ปลาวาฬ", "ปลาฉลาม"], answer: 1 },
+        { q: "ไข่อะไรเอ่ย แพงที่สุดในโลก?", options: ["ไข่ไก่", "ไข่เป็ด", "ไข่ดาว", "ไข่เจียวใส่ปู"], answer: 3 },
+        { q: "ทำไม นก ถึงบินลงใต้ในฤดูหนาว?", options: ["เดินไปมันไกลเกิน", "หนีหนาว", "หาอาหาร", "ไปเที่ยว"], answer: 0 },
+        { q: "ส้มอะไรเอ่ย สีเขียว?", options: ["ส้มโอ", "ส้มจี๊ด", "ส้มที่ยังไม่สุก", "ส้มตำ"], answer: 2 },
+        { q: "เห็นช้างใส่กางเกงสีแดง จะทำยังไง?", options: ["วิ่งหนี", "บอกให้มันถอด", "บอกให้มันซัก", "ตบมุกกลับ"], answer: 2 },
+        { q: "ถ้างูเข้าไปในถังขยะ งูจะฉกอะไร?", options: ["ฉกขยะ", "ฉกจิ้งจก", "ฉกปรก", "ฉกของกินที่เหลือ"], answer: 2 }
+      ]}
+    ];
+
+    let currentQuestionsList = [], currentQuestionIndex = 0, score = 0;
+    const startScreen = document.getElementById('start-screen');
+    const quizScreen = document.getElementById('quiz-screen');
+    const gameoverScreen = document.getElementById('gameover-screen');
+    const categoryContainer = document.getElementById('category-container');
+    const btnRestart = document.getElementById('btn-restart');
+    const questionText = document.getElementById('question-text');
+    const optionsContainer = document.getElementById('options-container');
+    const scoreText = document.getElementById('score-text');
+    const progressText = document.getElementById('progress-text');
+    const finalScoreText = document.getElementById('final-score-text');
+
+    function initCategoriesMenu() {
+      categoryContainer.innerHTML = '';
+      categoriesData.forEach((cat, index) => {
+        const btn = document.createElement('button');
+        btn.className = 'cat-btn';
+        btn.innerText = cat.name;
+        btn.onclick = () => startGame(index);
+        categoryContainer.appendChild(btn);
+      });
+    }
+
+    btnRestart.onclick = () => {
+      playSound('click');
+      quizScreen.classList.add('hidden');
+      gameoverScreen.classList.add('hidden');
+      startScreen.classList.remove('hidden');
+    };
+
+    function startGame(catIndex) {
+      playSound('click');
+      currentQuestionsList = categoriesData[catIndex].questions;
+      currentQuestionIndex = 0; score = 0;
+      startScreen.classList.add('hidden');
+      gameoverScreen.classList.add('hidden');
+      quizScreen.classList.remove('hidden');
+      loadQuestion();
+    }
+
+    function loadQuestion() {
+      const q = currentQuestionsList[currentQuestionIndex];
+      questionText.innerText = q.q;
+      scoreText.innerText = `🏆 คะแนน: ${score}`;
+      progressText.innerText = `ข้อ: ${currentQuestionIndex + 1}/${currentQuestionsList.length}`;
+      optionsContainer.innerHTML = '';
+      q.options.forEach((option, index) => {
+        const button = document.createElement('button');
+        button.className = 'opt-btn';
+        button.innerText = `${index + 1}. ${option}`;
+        button.onclick = () => checkAnswer(index);
+        optionsContainer.appendChild(button);
+      });
+    }
+
+    function checkAnswer(selectedIndex) {
+      const correctIndex = currentQuestionsList[currentQuestionIndex].answer;
+      if (selectedIndex === correctIndex) { playSound('correct'); score += 10; triggerJump(); }
+      else { playSound('wrong'); triggerShake(); }
+      currentQuestionIndex++;
+      if (currentQuestionIndex < currentQuestionsList.length) { setTimeout(loadQuestion, 700); }
+      else { setTimeout(endGame, 700); }
+    }
+
+    function endGame() {
+      quizScreen.classList.add('hidden');
+      gameoverScreen.classList.remove('hidden');
+      finalScoreText.innerText = `คุณทำคะแนนหมวดนี้ได้ ${score}/60 คะแนน!`;
+      finalScoreText2.innerText = `ไม่ได้เต็มไม่เป็นไร ถ้าได้เต็ม ยินดีด้วย!`;
+   }
+
+    initCategoriesMenu();
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    let angle = 0, jumpY = 0, shakeX = 0, isJumping = false, isShaking = false, jumpTimer = 0, shakeTimer = 0;
+    function triggerJump() { isJumping = true; jumpTimer = 0; }
+    function triggerShake() { isShaking = true; shakeTimer = 0; }
+
+    function draw3DCube(cx, cy, size) {
+      const h = size / 2;
+      ctx.fillStyle = '#0f3460';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 80, 80, 28, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#e94560'; ctx.lineWidth = 2; ctx.stroke();
+
+      ctx.fillStyle = '#ff6b81';
+      ctx.beginPath();
+      ctx.moveTo(cx + shakeX, cy - h + jumpY);
+      ctx.lineTo(cx + h + shakeX, cy - h * 1.5 + jumpY);
+      ctx.lineTo(cx + shakeX, cy - h * 2 + jumpY);
+      ctx.lineTo(cx - h + shakeX, cy - h * 1.5 + jumpY);
+      ctx.closePath(); ctx.fill();
+
+      ctx.fillStyle = '#e94560';
+      ctx.beginPath();
+      ctx.moveTo(cx - h + shakeX, cy - h * 1.5 + jumpY);
+      ctx.lineTo(cx + shakeX, cy - h + jumpY);
+      ctx.lineTo(cx + shakeX, cy + jumpY);
+      ctx.lineTo(cx - h + shakeX, cy - h * 0.5 + jumpY);
+      ctx.closePath(); ctx.fill();
+
+      ctx.fillStyle = '#c0392b';
+      ctx.beginPath();
+      ctx.moveTo(cx + shakeX, cy - h + jumpY);
+      ctx.lineTo(cx + h + shakeX, cy - h * 1.5 + jumpY);
+      ctx.lineTo(cx + h + shakeX, cy - h * 0.5 + jumpY);
+      ctx.lineTo(cx + shakeX, cy + jumpY);
+      ctx.closePath(); ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(cx - 16 + shakeX, cy - h * 0.8 + jumpY, 7, 0, Math.PI * 2);
+      ctx.arc(cx + 12 + shakeX, cy - h * 0.8 + jumpY, 7, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#000000';
+      ctx.beginPath();
+      ctx.arc(cx - 14 + shakeX, cy - h * 0.8 + jumpY, 3, 0, Math.PI * 2);
+      ctx.arc(cx + 14 + shakeX, cy - h * 0.8 + jumpY, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function renderLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      angle += 0.02;
+      if (isJumping) {
+        jumpTimer += 0.1;
+        jumpY = -Math.sin(jumpTimer * Math.PI) * 60;
+        if (jumpTimer >= 1) { isJumping = false; jumpY = 0; }
+      }
+      if (isShaking) {
+        shakeTimer += 0.1;
+        shakeX = Math.sin(shakeTimer * 25) * 10;
+        if (shakeTimer >= 1) { isShaking = false; shakeX = 0; }
+      }
+      draw3DCube(canvas.width / 2, canvas.height * 0.35, 65);
+      requestAnimationFrame(renderLoop);
+    }
+
+    renderLoop();
+  </script>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getAuth, signInWithRedirect, getRedirectResult, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+  import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAfrPNzQci4U1LwaFnx9WmcvvVZRG1_844",
+    authDomain: "d-survival-quiz.firebaseapp.com",
+    projectId: "d-survival-quiz",
+    storageBucket: "d-survival-quiz.firebasestorage.app",
+    messagingSenderId: "187633522089",
+    appId: "1:187633522089:web:2e28b853d84bafe525a0b8",
+    measurementId: "G-P5H6R0HPV9"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const provider = new GoogleAuthProvider();
+
+  // เช็คผลการล็อกอินหลังจากกด Redirect กลับมา
+  getRedirectResult(auth)
+    .then((result) => {
+      if (result && result.user) {
+        alert("ยินดีต้อนรับคุณ " + result.user.displayName);
+      }
+    })
+    .catch((error) => {
+      alert("Error: " + error.message);
+    });
+
+  // ฟังก์ชันล็อกอินแบบ Redirect (เหมาะสำหรับ APK / มือถือ)
+  window.loginWithGoogle = function() {
+    alert("กำลังเชื่อมต่อ Google..."); // ใส่ alert ทดสอบว่าปุ่มกดติดไหม
+    signInWithRedirect(auth, provider);
+  };
+
+  window.saveScoreToCloud = async function(score) {
+    if (auth.currentUser) {
+      const userRef = doc(db, "leaderboard", auth.currentUser.uid);
+      await setDoc(userRef, {
+        name: auth.currentUser.displayName,
+        highScore: score,
+        updatedAt: new Date()
+      }, { merge: true });
+      console.log("บันทึกคะแนนเรียบร้อย!");
+    }
+  };
+</script>
+
+ </body>
+</html>
